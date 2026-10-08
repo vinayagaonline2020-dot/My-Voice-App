@@ -285,12 +285,25 @@ export default function App() {
       />
 
       {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-100 text-xs shadow-2xl animate-fade-in">
-          <Check className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
+      {toastMessage && (() => {
+        const isError = /error|failed|denied|not configured/i.test(toastMessage);
+        return (
+          <div
+            className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs shadow-2xl animate-fade-in ${
+              isError
+                ? "bg-rose-950/90 border-rose-600/50 text-rose-200"
+                : "bg-slate-900 border-slate-700 text-slate-100"
+            }`}
+          >
+            {isError ? (
+              <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+            ) : (
+              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            )}
+            <span>{toastMessage}</span>
+          </div>
+        );
+      })()}
 
       {/* Main View Area */}
       <main className="flex-1 max-w-[1440px] w-full mx-auto p-4 sm:p-6 flex flex-col">

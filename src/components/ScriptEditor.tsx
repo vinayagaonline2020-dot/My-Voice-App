@@ -1,6 +1,11 @@
 import React, { useState, useRef, useMemo } from "react";
 import { SAMPLE_SCRIPTS } from "../data/voices";
-import { EXPRESSION_TAGS, ExpressionTag, TAMIL_EXPRESSION_CATEGORIES } from "../data/expressionTags";
+import {
+  EXPRESSION_TAGS,
+  ExpressionTag,
+  TAMIL_EXPRESSION_CATEGORIES,
+  ENGLISH_EXPRESSION_CATEGORIES,
+} from "../data/expressionTags";
 import {
   Languages,
   BookOpen,
@@ -96,19 +101,33 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
 
   // Filter tags by language, category, and search query
   const filteredTags = useMemo(() => {
-    return EXPRESSION_TAGS.filter((t) => {
+    const matched = EXPRESSION_TAGS.filter((t) => {
       const matchesLang = t.lang === tagLanguageFilter;
       const matchesCategory =
-        tagLanguageFilter === "en" || activeCategory === "all" || t.category === activeCategory;
+        activeCategory === "all" || t.category === activeCategory;
+      const q = tagSearchQuery.trim().toLowerCase();
       const matchesSearch =
-        !tagSearchQuery.trim() ||
-        t.tag.toLowerCase().includes(tagSearchQuery.toLowerCase()) ||
-        t.label.toLowerCase().includes(tagSearchQuery.toLowerCase()) ||
-        t.labelTa.includes(tagSearchQuery) ||
-        t.actingGuidance.toLowerCase().includes(tagSearchQuery.toLowerCase());
+        !q ||
+        t.tag.toLowerCase().includes(q) ||
+        t.label.toLowerCase().includes(q) ||
+        t.labelTa.includes(tagSearchQuery.trim()) ||
+        (t.categoryName && t.categoryName.toLowerCase().includes(q)) ||
+        t.actingGuidance.toLowerCase().includes(q);
 
       return matchesLang && matchesCategory && matchesSearch;
     });
+
+    // If viewing "all" and not actively querying, deduplicate by bracket tag to keep the tray clean
+    if (activeCategory === "all") {
+      const seen = new Set<string>();
+      return matched.filter((item) => {
+        if (seen.has(item.tag)) return false;
+        seen.add(item.tag);
+        return true;
+      });
+    }
+
+    return matched;
   }, [tagLanguageFilter, activeCategory, tagSearchQuery]);
 
   // Render text with styled expression badges in Preview Mode
@@ -123,11 +142,74 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
     return parts.map((part, index) => {
       if (part.startsWith("[") && part.endsWith("]")) {
         const isTamil = /[\u0B80-\u0BFF]/.test(part);
-        const isPause = part.includes("இடைவெளி") || part.includes("இடைவேளை") || part.includes("pause") || part.includes("நேரம்");
-        const isTension = part.includes("பதற்ற") || part.includes("பய") || part.includes("கோப") || part.includes("எரிச்ச") || part.includes("nervous") || part.includes("angry");
-        const isJoy = part.includes("உற்சாக") || part.includes("மகிழ்ச்சி") || part.includes("வெற்றி") || part.includes("பெருமித") || part.includes("excited");
-        const isVocal = part.includes("குரல்") || part.includes("கிசுகிசு") || part.includes("மூச்சிறை") || part.includes("whisper");
-        const isMajestic = part.includes("கம்பீர") || part.includes("வலு") || part.includes("அழுத்த") || part.includes("அதிகார") || part.includes("தன்னம்பிக்கை");
+        const tagLower = part.toLowerCase();
+        const isPause =
+          tagLower.includes("இடைவெளி") ||
+          tagLower.includes("இடைவேளை") ||
+          tagLower.includes("pause") ||
+          tagLower.includes("நேரம்") ||
+          tagLower.includes("beat") ||
+          tagLower.includes("silence") ||
+          tagLower.includes("slow");
+        const isTension =
+          tagLower.includes("பதற்ற") ||
+          tagLower.includes("பய") ||
+          tagLower.includes("கோப") ||
+          tagLower.includes("எரிச்ச") ||
+          tagLower.includes("nervous") ||
+          tagLower.includes("angry") ||
+          tagLower.includes("furious") ||
+          tagLower.includes("rage") ||
+          tagLower.includes("fear") ||
+          tagLower.includes("scared") ||
+          tagLower.includes("terrified") ||
+          tagLower.includes("sad") ||
+          tagLower.includes("cry") ||
+          tagLower.includes("sob") ||
+          tagLower.includes("hurt") ||
+          tagLower.includes("pain") ||
+          tagLower.includes("agitated") ||
+          tagLower.includes("frustrated");
+        const isJoy =
+          tagLower.includes("உற்சாக") ||
+          tagLower.includes("மகிழ்ச்சி") ||
+          tagLower.includes("வெற்றி") ||
+          tagLower.includes("பெருமித") ||
+          tagLower.includes("happy") ||
+          tagLower.includes("excited") ||
+          tagLower.includes("joy") ||
+          tagLower.includes("laugh") ||
+          tagLower.includes("giggle") ||
+          tagLower.includes("cheerful") ||
+          tagLower.includes("thrill");
+        const isLove =
+          tagLower.includes("அன்பு") ||
+          tagLower.includes("காதல்") ||
+          tagLower.includes("loving") ||
+          tagLower.includes("romantic") ||
+          tagLower.includes("tender") ||
+          tagLower.includes("affection") ||
+          tagLower.includes("sweet");
+        const isVocal =
+          tagLower.includes("குரல்") ||
+          tagLower.includes("கிசுகிசு") ||
+          tagLower.includes("மூச்சிறை") ||
+          tagLower.includes("whisper") ||
+          tagLower.includes("shout") ||
+          tagLower.includes("gasp") ||
+          tagLower.includes("sigh") ||
+          tagLower.includes("voice") ||
+          tagLower.includes("speak");
+        const isMajestic =
+          tagLower.includes("கம்பீர") ||
+          tagLower.includes("வலு") ||
+          tagLower.includes("அழுத்த") ||
+          tagLower.includes("அதிகார") ||
+          tagLower.includes("தன்னம்பிக்கை") ||
+          tagLower.includes("confident") ||
+          tagLower.includes("power") ||
+          tagLower.includes("bold") ||
+          tagLower.includes("motivat");
 
         return (
           <span
@@ -139,6 +221,8 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                 ? "bg-rose-500/15 border-rose-500/40 text-rose-300"
                 : isJoy
                 ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+                : isLove
+                ? "bg-pink-500/15 border-pink-500/40 text-pink-300"
                 : isVocal
                 ? "bg-purple-500/15 border-purple-500/40 text-purple-300"
                 : isMajestic
@@ -314,7 +398,10 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
             <div className="flex items-center gap-1 p-0.5 bg-slate-900 rounded-md border border-slate-800 shrink-0">
               <button
                 type="button"
-                onClick={() => setTagLanguageFilter("ta")}
+                onClick={() => {
+                  setTagLanguageFilter("ta");
+                  setActiveCategory("all");
+                }}
                 className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
                   tagLanguageFilter === "ta"
                     ? "bg-indigo-600 text-white shadow-xs"
@@ -325,48 +412,53 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setTagLanguageFilter("en")}
+                onClick={() => {
+                  setTagLanguageFilter("en");
+                  setActiveCategory("all");
+                }}
                 className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
                   tagLanguageFilter === "en"
                     ? "bg-indigo-600 text-white shadow-xs"
                     : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                English Tags
+                English Tags ({ENGLISH_EXPRESSION_CATEGORIES.length - 1} Categories)
               </button>
             </div>
 
-            {/* Tamil category filter tabs */}
-            {tagLanguageFilter === "ta" && (
-              <div className="flex items-center gap-1 overflow-x-auto py-0.5">
-                {TAMIL_EXPRESSION_CATEGORIES.map((cat) => (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setActiveCategory(cat.id)}
-                    className={`px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap transition-colors ${
-                      activeCategory === cat.id
-                        ? "bg-slate-800 text-indigo-300 border border-indigo-500/40"
-                        : "text-slate-500 hover:text-slate-300"
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* Category filter tabs */}
+            <div className="flex items-center gap-1 overflow-x-auto py-0.5 max-w-[45vw] sm:max-w-[55vw] scrollbar-thin">
+              {(tagLanguageFilter === "ta"
+                ? TAMIL_EXPRESSION_CATEGORIES
+                : ENGLISH_EXPRESSION_CATEGORIES
+              ).map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setActiveCategory(cat.id)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap transition-colors flex items-center gap-1 ${
+                    activeCategory === cat.id
+                      ? "bg-slate-800 text-indigo-300 border border-indigo-500/40"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  {cat.icon && <span>{cat.icon}</span>}
+                  <span>{cat.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            {/* Quick search input for the 50 tags */}
+            {/* Quick search input for expression tags */}
             <div className="relative">
               <Search className="w-3 h-3 absolute left-2 top-2 text-slate-500" />
               <input
                 type="text"
-                placeholder="Search tag (e.g. மெதுவாக, பயம்)..."
+                placeholder="Search tag (e.g. happy, anger, மெதுவாக)..."
                 value={tagSearchQuery}
                 onChange={(e) => setTagSearchQuery(e.target.value)}
-                className="pl-7 pr-6 py-1 text-[11px] bg-slate-900 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-500 w-36 sm:w-48 focus:outline-none focus:border-indigo-500"
+                className="pl-7 pr-6 py-1 text-[11px] bg-slate-900 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-500 w-36 sm:w-52 focus:outline-none focus:border-indigo-500"
               />
               {tagSearchQuery && (
                 <button
@@ -391,29 +483,63 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
 
         {/* Lower chips tray: Click to insert any tag right into text */}
         <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-h-24 scrollbar-thin">
-          {filteredTags.map((item) => (
-            <button
-              key={item.tag}
-              type="button"
-              onClick={() => insertTag(item.tag)}
-              title={`${item.label} (${item.actingGuidance})`}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium border whitespace-nowrap transition-all shadow-2xs hover:scale-105 active:scale-95 ${
-                item.category === "pacing"
-                  ? "bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 text-slate-200"
-                  : item.category === "mood"
-                  ? "bg-rose-950/30 hover:bg-rose-900/40 border-rose-800/40 text-rose-300"
-                  : item.category === "energy"
-                  ? "bg-emerald-950/30 hover:bg-emerald-900/40 border-emerald-800/40 text-emerald-300"
-                  : item.category === "vocal"
-                  ? "bg-purple-950/30 hover:bg-purple-900/40 border-purple-800/40 text-purple-300"
-                  : item.category === "authority"
-                  ? "bg-amber-950/30 hover:bg-amber-900/40 border-amber-800/40 text-amber-300"
-                  : "bg-cyan-950/30 hover:bg-cyan-900/40 border-cyan-800/40 text-cyan-300"
-              }`}
-            >
-              {item.tag}
-            </button>
-          ))}
+          {filteredTags.map((item, idx) => {
+            const cat = item.category;
+            let badgeColor = "bg-indigo-950/30 hover:bg-indigo-900/40 border-indigo-800/40 text-indigo-300";
+            if (cat === "pacing" || cat === "timing-control") {
+              badgeColor = "bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 text-slate-200";
+            } else if (
+              cat === "mood" ||
+              cat === "anger" ||
+              cat === "sadness" ||
+              cat === "fear" ||
+              cat === "negative-emotional" ||
+              cat === "cry-emotional"
+            ) {
+              badgeColor = "bg-rose-950/30 hover:bg-rose-900/40 border-rose-800/40 text-rose-300";
+            } else if (
+              cat === "energy" ||
+              cat === "happiness-fun" ||
+              cat === "laughter" ||
+              cat === "motivation-energy"
+            ) {
+              badgeColor = "bg-emerald-950/30 hover:bg-emerald-900/40 border-emerald-800/40 text-emerald-300";
+            } else if (
+              cat === "vocal" ||
+              cat === "voice-delivery" ||
+              cat === "physical-reactions"
+            ) {
+              badgeColor = "bg-purple-950/30 hover:bg-purple-900/40 border-purple-800/40 text-purple-300";
+            } else if (
+              cat === "authority" ||
+              cat === "confidence" ||
+              cat === "professional-voice"
+            ) {
+              badgeColor = "bg-amber-950/30 hover:bg-amber-900/40 border-amber-800/40 text-amber-300";
+            } else if (cat === "love-romance") {
+              badgeColor = "bg-pink-950/30 hover:bg-pink-900/40 border-pink-800/40 text-pink-300";
+            } else if (cat === "calm-relaxation") {
+              badgeColor = "bg-teal-950/30 hover:bg-teal-900/40 border-teal-800/40 text-teal-300";
+            } else if (cat === "high-intensity") {
+              badgeColor = "bg-orange-950/30 hover:bg-orange-900/40 border-orange-800/40 text-orange-300";
+            } else if (cat === "storytelling" || cat === "youtube-social") {
+              badgeColor = "bg-sky-950/30 hover:bg-sky-900/40 border-sky-800/40 text-sky-300";
+            } else if (cat === "attitude" || cat === "drama" || cat === "acting-dramatic") {
+              badgeColor = "bg-cyan-950/30 hover:bg-cyan-900/40 border-cyan-800/40 text-cyan-300";
+            }
+
+            return (
+              <button
+                key={`${item.category}-${item.tag}-${idx}`}
+                type="button"
+                onClick={() => insertTag(item.tag)}
+                title={`${item.categoryName ? item.categoryName + ': ' : ''}${item.label} (${item.labelTa}) - ${item.actingGuidance}`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium border whitespace-nowrap transition-all shadow-2xs hover:scale-105 active:scale-95 ${badgeColor}`}
+              >
+                {item.tag}
+              </button>
+            );
+          })}
 
           {filteredTags.length === 0 && (
             <span className="text-slate-500 text-[11px] py-1 italic">
@@ -429,7 +555,9 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
           <div className="flex items-center justify-between">
             <span className="font-semibold text-slate-200 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              Tamil 50 Expression Tags Glossary (தமிழ் உணர்ச்சி மற்றும் வாசிப்பு குறிப்புகள்)
+              {tagLanguageFilter === "ta"
+                ? "Tamil 50 Expression Tags Glossary (தமிழ் உணர்ச்சி மற்றும் வாசிப்பு குறிப்புகள்)"
+                : `English Emotions & Expressions Glossary (${ENGLISH_EXPRESSION_CATEGORIES.length - 1} Categories)`}
             </span>
             <button
               onClick={() => setShowTagGuide(false)}
@@ -439,21 +567,24 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
             </button>
           </div>
           <p className="text-[11px] text-slate-400 leading-relaxed">
-            All 50 directional tags are recognized by the AI speech actor. Insert any bracket tag into your script and the voice will shift delivery, pace, pauses, pitch, and emotion dynamically without pronouncing the bracket text!
+            All inline emotion and expression tags in brackets are recognized by the AI speech actor. Insert any bracket tag into your script and the voice will dynamically adapt emotion, pace, delivery, pauses, and pitch without pronouncing the bracket text!
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1 max-h-56 overflow-y-auto pr-1">
-            {EXPRESSION_TAGS.filter((t) => t.lang === "ta").map((t) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1 max-h-64 overflow-y-auto pr-1 scrollbar-thin">
+            {filteredTags.map((t, idx) => (
               <div
-                key={t.tag}
+                key={`${t.category}-${t.tag}-${idx}`}
                 onClick={() => insertTag(t.tag)}
-                className="p-2 rounded-lg bg-slate-950/90 border border-slate-800/90 hover:border-indigo-500/50 cursor-pointer text-[11px] transition-colors"
+                className="p-2.5 rounded-lg bg-slate-950/90 border border-slate-800/90 hover:border-indigo-500/50 cursor-pointer text-[11px] transition-colors group"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-indigo-400 font-semibold">{t.tag}</span>
-                  <span className="text-[10px] text-slate-500 capitalize">{t.category}</span>
+                  <span className="font-mono text-indigo-400 font-semibold group-hover:text-indigo-300">{t.tag}</span>
+                  <span className="text-[10px] text-slate-500 truncate max-w-[130px]">{t.categoryName || t.category}</span>
                 </div>
-                <div className="text-slate-200 font-medium mt-0.5">{t.label}</div>
-                <div className="text-[10px] text-slate-400 italic mt-0.5 truncate">{t.actingGuidance}</div>
+                <div className="text-slate-200 font-medium mt-1 flex items-center justify-between">
+                  <span>{t.label}</span>
+                  <span className="text-[10px] text-slate-400 font-normal">{t.labelTa}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 italic mt-0.5 leading-snug line-clamp-2">{t.actingGuidance}</div>
               </div>
             ))}
           </div>

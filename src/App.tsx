@@ -10,6 +10,8 @@ import { VoiceSelectorModal } from "./components/VoiceSelectorModal";
 import { VoiceCloningModal } from "./components/VoiceCloningModal";
 import { ProjectsManager } from "./components/ProjectsManager";
 import { SaveProjectModal } from "./components/SaveProjectModal";
+import { ApiKeyModal } from "./components/ApiKeyModal";
+import { HomePageApiKeyBar } from "./components/HomePageApiKeyBar";
 import { audioEngine } from "./utils/audioEngine";
 import { Sparkles, Mic2, Play, Download, Trash2, Globe, Check, AlertCircle } from "lucide-react";
 
@@ -54,10 +56,19 @@ export default function App() {
   const [isVoiceSelectorOpen, setIsVoiceSelectorOpen] = useState(false);
   const [isCloningLabOpen, setIsCloningLabOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  const [keysCount, setKeysCount] = useState<number>(1);
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Load server projects on start
+  // Custom API key & quota status on homepage
+  const [userApiKey, setUserApiKey] = useState<string>(() => {
+    return localStorage.getItem("kuralvoice_user_api_key") || "";
+  });
+  const [backendKeyDisplay, setBackendKeyDisplay] = useState<string>("");
+  const [isKeyLimitExhausted, setIsKeyLimitExhausted] = useState<boolean>(false);
+
+  // Load server projects and API keys count on start
   useEffect(() => {
     fetch("/api/projects")
       .then((res) => res.json())
@@ -67,7 +78,71 @@ export default function App() {
         }
       })
       .catch((err) => console.warn("Could not fetch server projects:", err));
+
+    fetch("/api/keys")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && typeof data.totalCount === "number") {
+          setKeysCount(data.totalCount);
+        }
+        if (data.success && Array.isArray(data.keys) && data.keys.length > 0) {
+          setBackendKeyDisplay(data.keys[0].masked || "");
+          if (data.keys[0].status === "exhausted") {
+            setIsKeyLimitExhausted(true);
+          }
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  // Save new API key from homepage
+  const handleSaveNewKey = async (newKey: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: newKey }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUserApiKey(newKey);
+        localStorage.setItem("kuralvoice_user_api_key", newKey);
+        setIsKeyLimitExhausted(false);
+        setKeysCount(data.totalKeys || 1);
+        showToast("புதிய Gemini API Key வெற்றிகரமாக இணைக்கப்பட்டது!");
+        return true;
+      }
+      return false;
+    } catch {
+      setUserApiKey(newKey);
+      localStorage.setItem("kuralvoice_user_api_key", newKey);
+      setIsKeyLimitExhausted(false);
+      showToast("API Key locally saved.");
+      return true;
+    }
+  };
+
+  const handleTestKey = async () => {
+    try {
+      const res = await fetch("/api/keys/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (data.success && data.status === "active") {
+        setIsKeyLimitExhausted(false);
+        showToast("✅ API Key connection verified & healthy!");
+      } else if (data.status === "exhausted") {
+        setIsKeyLimitExhausted(true);
+        showToast("⚠️ Key Limit exhausted (429)! Please enter a new key.");
+      } else {
+        showToast(data.error || "Key test failed.");
+      }
+    } catch (err: any) {
+      showToast(err.message || "Key test failed.");
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -104,19 +179,31 @@ export default function App() {
         body: JSON.stringify({
           text: scriptText,
           targetLang,
+          clientKeys: userApiKey ? [userApiKey] : undefined,
         }),
       });
 
       const data = await res.json();
       if (data.success && data.translatedText) {
+        setIsKeyLimitExhausted(false);
         setScriptText(data.translatedText);
         showToast(`Script translated to ${targetLang === "ta" ? "Tamil (தமிழ்)" : targetLang === "tanglish" ? "Tanglish" : "English"}!`);
       } else {
-        throw new Error(data.error || "Translation failed");
+        const errorMsg = data.error || "Translation failed";
+        if (/quota|429|resource_exhausted|exhausted|limit/i.test(errorMsg)) {
+          setIsKeyLimitExhausted(true);
+        }
+        throw new Error(errorMsg);
       }
     } catch (err: any) {
       console.warn("Translation fallback:", err);
-      showToast(err.message || "Translation error");
+      const isQuota = /quota|429|resource_exhausted|exhausted|limit/i.test(err.message || "");
+      if (isQuota) {
+        setIsKeyLimitExhausted(true);
+        showToast("⚠️ API Key Limit முடிந்துவிட்டது! முகப்புப்பக்கத்தில் புதிய Key உள்ளீடு செய்யவும்.");
+      } else {
+        showToast(err.message || "Translation error");
+      }
     } finally {
       setIsTranslating(false);
     }
@@ -162,12 +249,14 @@ export default function App() {
           language: languageCode,
           customTonePrompt: selectedVoice.isCloned ? selectedVoice.description : undefined,
           useHighFidelityActor,
+          clientKeys: userApiKey ? [userApiKey] : undefined,
         }),
       });
 
       const data = await res.json();
 
       if (data.success && data.audioBase64) {
+        setIsKeyLimitExhausted(false);
         const newItem: GeneratedAudioItem = {
           id: `audio_${Date.now()}`,
           title: scriptText.slice(0, 32).trim() + "...",
@@ -187,13 +276,26 @@ export default function App() {
 
         setCurrentAudio(newItem);
         setAudioHistory((prev) => [newItem, ...prev.slice(0, 19)]);
-        showToast("Audio generated successfully! Playing now...");
+        const successMsg = data.switchedKey
+          ? `Audio generated! (Quota limit reached on previous key — automatically switched to backup key ${data.keyUsed || ""})`
+          : "Audio generated successfully! Playing now...";
+        showToast(successMsg);
       } else {
-        throw new Error(data.error || "Generation returned no audio data.");
+        const errorMsg = data.error || "Generation returned no audio data.";
+        if (/quota|429|resource_exhausted|limit|exhausted/i.test(errorMsg)) {
+          setIsKeyLimitExhausted(true);
+        }
+        throw new Error(errorMsg);
       }
     } catch (err: any) {
       console.warn("TTS backend note:", err);
-      showToast(err.message || "Synthesis error. Falling back to local preview.");
+      const isQuota = /quota|429|resource_exhausted|limit|exhausted/i.test(err.message || "");
+      if (isQuota) {
+        setIsKeyLimitExhausted(true);
+        showToast("⚠️ API Key Limit முடிந்துவிட்டது! முகப்புப்பக்கத்தில் புதிய Key உள்ளீடு செய்யவும்.");
+      } else {
+        showToast(err.message || "Synthesis error. Falling back to local preview.");
+      }
       handleInstantLocalPreview();
     } finally {
       setIsGenerating(false);
@@ -281,6 +383,8 @@ export default function App() {
         setActiveTab={setActiveTab}
         onOpenCloningLab={() => setIsCloningLabOpen(true)}
         onOpenSaveModal={() => setIsSaveModalOpen(true)}
+        onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+        keysCount={keysCount}
         hasAudio={Boolean(currentAudio)}
       />
 
@@ -308,7 +412,17 @@ export default function App() {
       {/* Main View Area */}
       <main className="flex-1 max-w-[1440px] w-full mx-auto p-4 sm:p-6 flex flex-col">
         {activeTab === "studio" && (
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <>
+            {/* Homepage Persistent API Key Bar with Auto-Alert when Limit Reached */}
+            <HomePageApiKeyBar
+              currentKey={userApiKey || backendKeyDisplay}
+              isLimitExhausted={isKeyLimitExhausted}
+              onSaveKey={handleSaveNewKey}
+              onTestKey={handleTestKey}
+              isLoading={isGenerating}
+            />
+
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left 7 Columns: Script Editor + Audio Player Deck */}
             <div className="lg:col-span-7 flex flex-col gap-6">
               <div className="h-[360px]">
@@ -424,7 +538,8 @@ export default function App() {
               </div>
             </div>
           </div>
-        )}
+        </>
+      )}
 
         {/* Tab 2: Voice Roster Full View */}
         {activeTab === "voices" && (
@@ -548,6 +663,13 @@ export default function App() {
         defaultCategory="YouTube Shorts"
         onSave={handleSaveToProjects}
         isSaving={isSavingProject}
+      />
+
+      {/* API Keys Auto-Failover Modal */}
+      <ApiKeyModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
+        onKeysUpdated={(count) => setKeysCount(count)}
       />
     </div>
   );

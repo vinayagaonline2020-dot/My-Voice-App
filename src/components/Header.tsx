@@ -1,11 +1,13 @@
 import React from "react";
-import { Sparkles, Plus } from "lucide-react";
+import { Sparkles, Plus, KeyRound } from "lucide-react";
 
 interface HeaderProps {
   activeTab: "studio" | "voices" | "projects" | "cloning";
   setActiveTab: (tab: "studio" | "voices" | "projects" | "cloning") => void;
   onOpenCloningLab: () => void;
   onOpenSaveModal: () => void;
+  onOpenApiKeyModal: () => void;
+  keysCount?: number;
   hasAudio: boolean;
 }
 
@@ -14,6 +16,8 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   onOpenCloningLab,
   onOpenSaveModal,
+  onOpenApiKeyModal,
+  keysCount,
   hasAudio,
 }) => {
   return (
@@ -82,6 +86,21 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Zone 3: 1-2 Primary Action Buttons */}
       <div className="flex items-center gap-2.5">
+        <button
+          type="button"
+          onClick={onOpenApiKeyModal}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 shadow-sm"
+          title="Gemini API Keys & தானியங்கி இணைப்பு (Auto-Failover)"
+        >
+          <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+          <span className="hidden sm:inline">API Keys</span>
+          {typeof keysCount === "number" && (
+            <span className="px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-mono leading-none">
+              {keysCount}
+            </span>
+          )}
+        </button>
+
         <button
           type="button"
           onClick={onOpenCloningLab}

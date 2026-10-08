@@ -1,0 +1,6 @@
+{
+  "name": "KuralVoice AI Studio",
+  "description": "Studio-grade synthetic voice generator and voice cloning lab with ultra-low latency, emotional modulation, and bilingual Tamil & English speech synthesis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

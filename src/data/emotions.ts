@@ -1,0 +1,68 @@
+import { EmotionOption } from "../types";
+
+export const EMOTION_PRESETS: EmotionOption[] = [
+  {
+    id: "professional",
+    label: "Professional",
+    labelTa: "தொழில்முறை",
+    description: "Crisp, balanced corporate and explainer tone",
+    promptInstruction: "Clear, poised, broadcast-standard pronunciation with refined articulation and steady cadence",
+    iconName: "Briefcase",
+  },
+  {
+    id: "conversational",
+    label: "Conversational",
+    labelTa: "இயல்பான உரையாடல்",
+    description: "Relaxed, authentic friendly dialogue like speaking to a friend",
+    promptInstruction: "Warm, relatable, conversational dialogue style with spontaneous micro-pauses and natural smile",
+    iconName: "MessageCircle",
+  },
+  {
+    id: "excited",
+    label: "Excited & Punchy",
+    labelTa: "ஆர்வமும் துடிப்பும்",
+    description: "High energy, enthusiastic YouTube/TikTok creator style",
+    promptInstruction: "Enthusiastic, energetic, upbeat delivery with vibrant inflection and punchy dynamic emphasis",
+    iconName: "Zap",
+  },
+  {
+    id: "cinematic",
+    label: "Cinematic & Deep",
+    labelTa: "கம்பீர சினிமா பாணி",
+    description: "Dramatic trailer voice with bass resonance and epic tension",
+    promptInstruction: "Dramatic, intense, slow cinematic trailer narration with chest resonance, gravitas, and suspense",
+    iconName: "Film",
+  },
+  {
+    id: "warm_storyteller",
+    label: "Warm Storyteller",
+    labelTa: "அன்பான கதை சொல்லி",
+    description: "Emotive audiobook style with lyrical pauses",
+    promptInstruction: "Gentle, nostalgic, vivid storyteller cadence with warm lyrical modulation and expressive character immersion",
+    iconName: "BookOpen",
+  },
+  {
+    id: "calm_meditative",
+    label: "Calm & Meditative",
+    labelTa: "அமைதியான தியானம்",
+    description: "Soft, tranquil wellness and sleep story cadence",
+    promptInstruction: "Soothing, peaceful, breathy, slow-tempo meditative guide with gentle rounded cadence",
+    iconName: "Moon",
+  },
+  {
+    id: "authoritative_news",
+    label: "News Anchor",
+    labelTa: "செய்தி வாசிப்பாளர்",
+    description: "Formal, serious, objective broadcast journalism",
+    promptInstruction: "Formal, urgent, objective newsroom anchor delivery with crisp consonants and authoritative presence",
+    iconName: "Radio",
+  },
+  {
+    id: "whisper",
+    label: "Intimate Whisper / ASMR",
+    labelTa: "மெல்லிய ரகசியம்",
+    description: "Close mic, soft intimate whisper",
+    promptInstruction: "Intimate, gentle near-mic whisper with soft breathiness, delicate tone, and ASMR warmth",
+    iconName: "Wind",
+  },
+];

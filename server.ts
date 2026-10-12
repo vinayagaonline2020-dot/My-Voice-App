@@ -386,7 +386,222 @@ app.post("/api/keys/test", async (req, res) => {
   }
 });
 
-// Route: Text to Speech generation with Gemini 3.8 Flash TTS / Flash Lite TTS
+// Convert raw linear 16-bit PCM audio buffer into valid RIFF WAV with standard 44-byte header
+function pcmToWavBuffer(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bitDepth = 16): Buffer {
+  const dataSize = pcmBuffer.length;
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16); // Subchunk1Size for PCM
+  header.writeUInt16LE(1, 20);  // AudioFormat: 1 = PCM
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * numChannels * (bitDepth / 8), 28); // ByteRate
+  header.writeUInt16LE(numChannels * (bitDepth / 8), 32); // BlockAlign
+  header.writeUInt16LE(bitDepth, 34); // BitsPerSample
+  header.write("data", 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  return Buffer.concat([header, pcmBuffer]);
+}
+
+// Comprehensive dictionary mapping Tamil expression and pacing tags into acoustic cues recognized by Gemini neural TTS
+const TAMIL_TO_ACOUSTIC_TAGS: Record<string, string> = {
+  // --- Moods & Emotional Expressions (with all colloquial variations) ---
+  "[மகிழ்ச்சியாக]": "[joyful and happy]",
+  "[மகிழ்ச்சியுடன்]": "[joyful and happy]",
+  "[மகிழ்ச்சி]": "[happy]",
+  "[உற்சாகமாக]": "[excited and energized]",
+  "[உற்சாகத்துடன்]": "[excited and energized]",
+  "[உற்சாகம்]": "[excited]",
+  "[சோகமாக]": "[sad and sorrowful]",
+  "[சோகத்துடன்]": "[sad and sorrowful]",
+  "[சோகம்]": "[sad]",
+  "[கோபமாக]": "[angry and furious]",
+  "[கோபத்துடன்]": "[angry and furious]",
+  "[கோபம்]": "[angry]",
+  "[பதட்டமாக]": "[nervous and tense]",
+  "[பதட்டத்துடன்]": "[nervous and tense]",
+  "[பதட்டம்]": "[nervous]",
+  "[பதற்றமாக]": "[nervous and tense]",
+  "[பதற்றத்துடன்]": "[nervous and tense]",
+  "[பதற்றம்]": "[nervous]",
+  "[பயத்துடன்]": "[fearful and trembling]",
+  "[பயமாக]": "[fearful and trembling]",
+  "[பயம்]": "[fearful]",
+  "[அமைதியாக]": "[calm and peaceful]",
+  "[அமைதியுடன்]": "[calm and peaceful]",
+  "[அமைதி]": "[calm]",
+  "[கிசுகிசுப்பாக]": "[whispering softly]",
+  "[ரகசியமாக]": "[whispering softly]",
+  "[கம்பீரமாக]": "[commanding and majestic]",
+  "[கம்பீரத்துடன்]": "[commanding and majestic]",
+  "[கம்பீரம்]": "[commanding and majestic]",
+  "[அதிகாரமாக]": "[authoritative]",
+  "[அதிகாரத்துடன்]": "[authoritative]",
+  "[தன்னம்பிக்கையுடன்]": "[confident and assured]",
+  "[தன்னம்பிக்கை]": "[confident]",
+  "[ஊக்கமாக]": "[inspirational and motivational]",
+  "[ஊக்கத்துடன்]": "[inspirational and motivational]",
+  "[வெற்றிக் களிப்புடன்]": "[triumphant]",
+  "[பெருமிதமாக]": "[proud and dignified]",
+  "[பெருமிதத்துடன்]": "[proud and dignified]",
+  "[ஆச்சரியமாக]": "[surprised and amazed]",
+  "[ஆச்சரியத்துடன்]": "[surprised and amazed]",
+  "[ஆச்சரியம்]": "[surprised]",
+  "[அதிர்ச்சியாக]": "[shocked]",
+  "[அதிர்ச்சியுடன்]": "[shocked]",
+  "[மர்மமாக]": "[mysterious]",
+  "[திகிலாக]": "[terrified]",
+  "[திகிலுடன்]": "[terrified]",
+  "[கேள்வியாக]": "[questioning]",
+  "[எரிச்சலாக]": "[irritated and annoyed]",
+  "[எரிச்சலுடன்]": "[irritated and annoyed]",
+  "[நையாண்டியாக]": "[sarcastic and playful]",
+  "[நையாண்டியுடன்]": "[sarcastic and playful]",
+  "[கிண்டலாக]": "[playful and mocking]",
+  "[கிண்டலுடன்]": "[playful and mocking]",
+  "[குறும்பாக]": "[mischievous]",
+  "[சிரிப்புடன்]": "[laughing and smiling]",
+  "[ஆழ்ந்த குரலில்]": "[deep resonant voice]",
+  "[மெல்லிய குரலில்]": "[soft gentle voice]",
+  "[உயர்ந்த குரலில்]": "[high pitched voice]",
+  "[அன்பாக]": "[affectionate and warm]",
+  "[அன்புடன்]": "[affectionate and warm]",
+  "[ஆறுதலாக]": "[comforting and gentle]",
+  "[ஆறுதலுடன்]": "[comforting and gentle]",
+  "[குழப்பமாக]": "[confused]",
+  "[குழப்பத்துடன்]": "[confused]",
+  "[சந்தேகமாக]": "[suspicious]",
+  "[சந்தேகத்துடன்]": "[suspicious]",
+  "[சோர்வாக]": "[exhausted]",
+  "[சோர்வுடன்]": "[exhausted]",
+  "[மூச்சிறைக்க]": "[out of breath]",
+  "[இயல்பாக]": "[conversational and relaxed]",
+  "[கதை சொல்லும் பாணியில்]": "[storytelling cadence]",
+  "[எச்சரிக்கையுடன்]": "[cautious]",
+  "[மன்னிப்பு கோரி]": "[apologetic and humble]",
+  "[ஆர்வமாக]": "[eager and enthusiastic]",
+  "[ஆர்வத்துடன்]": "[eager and enthusiastic]",
+  "[விறுவிறுப்பாக]": "[fast and gripping]",
+  "[வலுவாக]": "[powerful and strong]",
+  "[அழுத்தமாக]": "[emphatic]",
+  "[காதலுடன்]": "[romantic and tender]",
+
+  // --- Pacing, Breath & Pause Timing ---
+  "[தெளிவாக வாசிக்கவும்]": "[clear and articulate]",
+  "[தெளிவாக]": "[clear and articulate]",
+  "[மெதுவாக]": "[slowly]",
+  "[வேகமாக]": "[fast paced]",
+  "[சுருக்கமாக]": "[concise]",
+  "[விளக்கமாக]": "[explanatory]",
+  "[சிறிய இடைவெளி]": "<short pause>",
+  "[நீண்ட இடைவெளி]": "<long pause>",
+  "[இடைவேளை]": "<pause>",
+  "[இடைவெளி]": "<pause>",
+  "[நேரம் முடிந்தது]": "[urgent stop]",
+};
+
+function mapScriptToAcousticText(input: string): string {
+  let mapped = input;
+  for (const [tamilTag, acousticTag] of Object.entries(TAMIL_TO_ACOUSTIC_TAGS)) {
+    mapped = mapped.split(tamilTag).join(` ${acousticTag} `);
+  }
+  return mapped.replace(/\s+/g, " ").trim();
+}
+
+function resolvePrimaryAcousticTag(emotion: string): string {
+  const low = (emotion || "").toLowerCase();
+  if (low.includes("excit") || low.includes("punchy") || low.includes("உற்சாக") || low.includes("ஆர்வம்")) {
+    return "[excited and energized]";
+  }
+  if (low.includes("happy") || low.includes("joy") || low.includes("மகிழ்ச்சி") || low.includes("சிரிப்பு")) {
+    return "[joyful and smiling]";
+  }
+  if (low.includes("sad") || low.includes("sorrow") || low.includes("சோகம்") || low.includes("அழுகை") || low.includes("grief")) {
+    return "[deeply sorrowful and tearful]";
+  }
+  if (low.includes("angry") || low.includes("furious") || low.includes("கோபம்") || low.includes("தீவிர")) {
+    return "[angry and furious]";
+  }
+  if (low.includes("cinematic") || low.includes("deep") || low.includes("கம்பீர") || low.includes("சினிமா")) {
+    return "[commanding and majestic deep voice]";
+  }
+  if (low.includes("storyteller") || low.includes("கதை")) {
+    return "[storytelling cadence]";
+  }
+  if (low.includes("calm") || low.includes("meditat") || low.includes("அமைதி") || low.includes("தியானம்")) {
+    return "[calm and peaceful]";
+  }
+  if (low.includes("romantic") || low.includes("sweet") || low.includes("காதல்") || low.includes("மென்மை")) {
+    return "[romantic and tender whisper]";
+  }
+  if (low.includes("fear") || low.includes("thriller") || low.includes("பயம்") || low.includes("திகில்")) {
+    return "[terrified and trembling]";
+  }
+  if (low.includes("sarcastic") || low.includes("witty") || low.includes("நையாண்டி") || low.includes("கிண்டல்")) {
+    return "[sarcastic and mocking]";
+  }
+  if (low.includes("news") || low.includes("செய்தி")) {
+    return "[authoritative and clear broadcast voice]";
+  }
+  if (low.includes("whisper") || low.includes("ரகசியம்") || low.includes("asmr")) {
+    return "[whispering softly]";
+  }
+  if (low.includes("conversational") || low.includes("உரையாடல்")) {
+    return "[conversational and friendly]";
+  }
+  return "[clear and articulate]";
+}
+
+function resolveAcousticBaselineDirective(emotion: string, customTone?: string, speed: number = 1.0): string {
+  const low = (emotion || "").toLowerCase();
+  let base = "";
+
+  if (low.includes("happy") || low.includes("மகிழ்ச்சி") || low.includes("joy")) {
+    base = "joyful, cheerful, radiant smiling laughter undertone";
+  } else if (low.includes("sad") || low.includes("சோகம்") || low.includes("grief") || low.includes("sorrow")) {
+    base = "deeply sorrowful, heartbroken, tearful quivering falling cadence";
+  } else if (low.includes("angry") || low.includes("கோபம்") || low.includes("furious")) {
+    base = "intensely angry, furious, aggressive, forceful projection with sharp consonants";
+  } else if (low.includes("excited") || low.includes("உற்சாக") || low.includes("punchy")) {
+    base = "high-energy, upbeat, enthusiastic, vibrant inflection";
+  } else if (low.includes("romantic") || low.includes("காதல்") || low.includes("sweet")) {
+    base = "tender, affectionate, deeply romantic warm whisper";
+  } else if (low.includes("fear") || low.includes("பயம்") || low.includes("thriller")) {
+    base = "terrified, trembling, breathless suspenseful fear";
+  } else if (low.includes("sarcastic") || low.includes("கிண்டல்") || low.includes("நையாண்டி")) {
+    base = "playful sarcasm, humorous teasing banter, smirking witty tone";
+  } else if (low.includes("cinematic") || low.includes("கம்பீர") || low.includes("deep")) {
+    base = "dramatic cinematic trailer narration, chest resonance, majestic gravitas";
+  } else if (low.includes("storyteller") || low.includes("கதை")) {
+    base = "vivid storytelling cadence, warm nostalgic modulation, immersive pauses";
+  } else if (low.includes("whisper") || low.includes("ரகசியம்") || low.includes("asmr")) {
+    base = "intimate close-mic whisper, soft delicate breathiness";
+  } else if (low.includes("calm") || low.includes("அமைதி") || low.includes("meditat")) {
+    base = "peaceful, soothing, slow meditative guide, gentle rounded breath";
+  } else if (low.includes("news") || low.includes("செய்தி")) {
+    base = "urgent formal objective broadcast journalism, crisp clear consonants";
+  } else if (low.includes("conversational") || low.includes("உரையாடல்")) {
+    base = "friendly conversational, relaxed spontaneous cadence";
+  } else {
+    base = emotion || "Clear, balanced natural human speech";
+  }
+
+  if (customTone) {
+    base += `, persona: ${customTone}`;
+  }
+  if (speed < 0.85) {
+    base += ", paced deliberate tempo";
+  } else if (speed > 1.2) {
+    base += ", brisk fast tempo";
+  }
+  return base;
+}
+
+// Route: Text to Speech generation with Gemini Neural Voice Engine
 app.post("/api/tts/generate", async (req, res) => {
   try {
     const {
@@ -405,78 +620,130 @@ app.post("/api/tts/generate", async (req, res) => {
       return res.status(400).json({ error: "Text is required for audio synthesis." });
     }
 
-    // Determine model: if script uses vocal bursts or bracketed emotional cues like [உற்சாகமாக] or [nervous], use gemini-3.8-flash-tts
-    const hasVocalBursts = /<laugh>|<breath>|<gasp>|<sigh>|\|mhm\||\|yeah\|/i.test(text);
-    const hasInlineEmotions = /\[[^\]]+\]/.test(text);
-    const model = (hasVocalBursts || hasInlineEmotions || useHighFidelityActor)
-      ? "gemini-3.8-flash-tts"
-      : "gemini-3.8-flash-lite-tts";
+    const trimmedText = text.trim();
+    const hasInlineAcousticTags = /(\[[^\]]+\]|<[^>]+>|\|[^|]+\|)/.test(trimmedText);
 
-    // Build speech style instruction
-    let styleGuidance = `Speak naturally in a human-like, non-monotone voice with emotional baseline: ${emotion}.`;
+    let scriptForSynthesis = trimmedText;
+    if (!hasInlineAcousticTags) {
+      // User provided a raw plain script without manual acting tags!
+      // Dynamically inject the primary emotion tag and natural breath timing
+      const primaryTag = resolvePrimaryAcousticTag(emotion);
 
-    if (hasInlineEmotions) {
-      styleGuidance += ` CRITICAL ACTING & DIRECTION INSTRUCTION: The script contains inline theatrical stage directions and pacing tags in brackets (e.g. Tamil expressions such as [உற்சாகமாக], [தெளிவாக வாசிக்கவும்], [மெதுவாக], [வேகமாக], [சிறிய இடைவெளி], [நீண்ட இடைவெளி], [இடைவேளை], [நேரம் முடிந்தது], [ஆர்வமாக], [விறுவிறுப்பாக], [வலுவாக], [அழுத்தமாக], [விளக்கமாக], [சுருக்கமாக], [அமைதியாக], [கம்பீரமாக], [மகிழ்ச்சியாக], [சோகமாக], [ஆச்சரியமாக], [அதிர்ச்சியாக], [மர்மமாக], [திகிலாக], [கிசுகிசுப்பாக], [கேள்வியாக], [பதற்றமாக], [பயத்துடன்], [கோபமாக], [எரிச்சலாக], [நையாண்டியாக], [கிண்டலாக], [குறும்பாக], [சிரிப்புடன்], [ஆழ்ந்த குரலில்], [மெல்லிய குரலில்], [உயர்ந்த குரலில்], [அதிகாரமாக], [தன்னம்பிக்கையுடன்], [ஊக்கமாக], [அன்பாக], [ஆறுதலாக], [குழப்பமாக], [சந்தேகமாக], [சோர்வாக], [மூச்சிறைக்க], [இயல்பாக], [கதை சொல்லும் பாணியில்], [எச்சரிக்கையுடன்], [மன்னிப்பு கோரி], [வெற்றிக் களிப்புடன்], [பெருமிதமாக], or English emotion and pacing tags such as [happy], [sad], [angry], [excited], [calm], [afraid], [crying], [whispering], [laughing], [sarcastic], [storytelling], [pause], [dramatic-pause], [hook], [confident], [gasping], [screaming], [romantic], [fearful], [dramatic], [slowly], [urgently], [motivational]). You MUST dynamically adjust your vocal delivery, tempo, pauses, pitch register, and emotion at each bracket for the subsequent words. If a tag specifies a pause ([pause], [short-pause], [long-pause], [dramatic-pause], [சிறிய இடைவெளி], [நீண்ட இடைவெளி], [இடைவேளை]), pause naturally for the indicated duration. NEVER speak or pronounce the bracket words themselves out loud; instead perform their emotional direction directly.`;
+      // If script has multiple sentences, inject subtle natural breath at sentence boundaries
+      const sentences = scriptForSynthesis.split(/([.!?\n]+)/).filter(Boolean);
+      if (sentences.length >= 4) {
+        let rebuilt = `${primaryTag} `;
+        for (let idx = 0; idx < sentences.length; idx++) {
+          rebuilt += sentences[idx];
+          if (idx === 1 && sentences.length > 2) {
+            rebuilt += " <breath> ";
+          }
+        }
+        scriptForSynthesis = rebuilt.trim();
+      } else {
+        scriptForSynthesis = `${primaryTag} ${scriptForSynthesis}`;
+      }
     }
 
-    if (customTonePrompt) {
-      styleGuidance += ` Persona nuance: ${customTonePrompt}.`;
-    }
+    // Convert Tamil emotion/pacing tags into standard acoustic cues (e.g., [happy], [excited], <short pause>)
+    const processedScript = mapScriptToAcousticText(scriptForSynthesis);
+    const acousticBaseline = resolveAcousticBaselineDirective(emotion, customTonePrompt, speed);
 
+    // Prepend explicit style conditioning directive into prompt text
+    const synthesizedPromptText = `[style: ${acousticBaseline}] ${processedScript}`;
+
+    let styleGuidance = `Speak naturally in a human-like, non-monotone voice with emotional baseline: ${acousticBaseline}.`;
     if (language === "ta" || /[\u0B80-\u0BFF]/.test(text)) {
       styleGuidance += " Masterful Tamil phonetics and prosody with authentic South Indian cadence, clean enunciations, and natural breath timing.";
     } else if (language === "en") {
       styleGuidance += " Natural studio articulation, clear diction, and broadcast-ready cadence.";
-    } else {
-      styleGuidance += " Seamless bilingual code-switching between Tamil and English where applicable.";
     }
 
-    if (speed < 0.85) {
-      styleGuidance += " Paced deliberate tempo with relaxed pauses.";
-    } else if (speed > 1.2) {
-      styleGuidance += " Brisk, energetic high-tempo delivery.";
-    }
+    // TTS models ordered with intelligent fallback
+    // gemini-3.8-flash-tts is the flagship expressive model with full prosody & style metadata support
+    const candidateModels = [
+      "gemini-3.8-flash-tts",
+      "gemini-2.5-flash-preview-tts",
+      "gemini-3.1-flash-tts-preview",
+      "gemini-3.8-flash-lite-tts",
+    ];
 
-    // Call Gemini TTS with Automatic Multi-Key Failover
-    const { result: response, keyUsed, switchedKey, attempts } = await executeWithGeminiFailover(
+    // Call Gemini TTS with Automatic Multi-Key & Multi-Model Failover
+    const { result, keyUsed, switchedKey, attempts } = await executeWithGeminiFailover(
       async (ai) => {
-        return await ai.models.generateContent({
-          model,
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: text.trim(),
-                  speechMetadata: {
-                    style: styleGuidance,
+        let lastModelError: any = null;
+
+        for (const modelCandidate of candidateModels) {
+          try {
+            // Note: gemini-3.8-* models accept speechMetadata in parts; 2.5 and 3.1 reject it with 400.
+            const supportsSpeechMetadata = modelCandidate.includes("3.8");
+
+            const parts: any[] = supportsSpeechMetadata
+              ? [
+                  {
+                    text: synthesizedPromptText,
+                    speechMetadata: {
+                      style: styleGuidance,
+                    },
                   },
+                ]
+              : [
+                  {
+                    text: synthesizedPromptText,
+                  },
+                ];
+
+            const response = await ai.models.generateContent({
+              model: modelCandidate,
+              contents: [
+                {
+                  role: "user",
+                  parts,
                 },
               ],
-            },
-          ],
-          config: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: voiceName as "Puck" | "Charon" | "Kore" | "Fenrir" | "Zephyr",
+              config: {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: {
+                      voiceName: voiceName as "Puck" | "Charon" | "Kore" | "Fenrir" | "Zephyr",
+                    },
+                  },
                 },
               },
-            },
-          },
-        });
+            });
+
+            const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+            if (base64Audio) {
+              return {
+                audioBase64: base64Audio,
+                modelUsed: modelCandidate,
+              };
+            }
+          } catch (modelErr: any) {
+            lastModelError = modelErr;
+            console.warn(`[TTS Model Cascade] Model ${modelCandidate} failed: ${modelErr.message}. Trying next available TTS model...`);
+            // Continue trying next candidate model in cascade
+          }
+        }
+
+        throw lastModelError || new Error("All TTS model candidates failed to synthesize audio.");
       },
       clientKeys
     );
 
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-
-    if (!base64Audio) {
+    const rawAudioBase64 = result.audioBase64;
+    if (!rawAudioBase64) {
       return res.status(500).json({
         error: "No audio stream returned from Gemini TTS engine.",
       });
     }
+
+    // Package raw linear PCM into a standard, 100% compliant 24kHz 16-bit mono WAV file
+    const rawPcm = Buffer.from(rawAudioBase64, "base64");
+    const isAlreadyWav = rawPcm.length >= 4 && rawPcm.slice(0, 4).toString("ascii") === "RIFF";
+    const finalWavBuffer = isAlreadyWav ? rawPcm : pcmToWavBuffer(rawPcm, 24000, 1, 16);
+    const finalWavBase64 = finalWavBuffer.toString("base64");
 
     // Approximate duration from character count & speed (average ~14 chars per sec at 1x)
     const charCount = text.length;
@@ -484,13 +751,13 @@ app.post("/api/tts/generate", async (req, res) => {
 
     return res.json({
       success: true,
-      audioBase64: base64Audio,
+      audioBase64: finalWavBase64,
       mimeType: "audio/wav",
       sampleRate: 24000,
       channels: 1,
       estimatedDuration,
       charCount,
-      modelUsed: model,
+      modelUsed: result.modelUsed,
       voiceName,
       emotion,
       keyUsed,
@@ -502,6 +769,82 @@ app.post("/api/tts/generate", async (req, res) => {
     return res.status(500).json({
       error: error?.message || "Failed to generate speech audio.",
     });
+  }
+});
+
+// Route: AI-Powered Script Emotion Enricher (Director Mode)
+app.post("/api/script/enrich-emotions", async (req, res) => {
+  try {
+    const { script, emotionId = "excited", emotionLabel = "Excited & Punchy", language = "ta", clientKeys = [] } = req.body;
+    if (!script || typeof script !== "string" || !script.trim()) {
+      return res.status(400).json({ error: "Script text is required to enrich emotions." });
+    }
+
+    const isTamil = /[\u0B80-\u0BFF]/.test(script) || language === "ta";
+    const prompt = `You are a world-class Tamil & English voice acting director and speech prosody engineer.
+A creator has provided a script for text-to-speech audio synthesis. Without acting tags, plain text sounds flat and monotonous.
+Your job is to ENRICH the creator's script by naturally inserting acoustic emotion tags, vocal breaths, and pacing markers matching the intended emotional vibe: "${emotionLabel}".
+
+Target Emotion Style: ${emotionLabel} (ID: ${emotionId})
+Target Language: ${isTamil ? "Tamil (தமிழ்)" : "English / Bilingual"}
+
+Available Acting Tags for this engine:
+${
+  isTamil
+    ? `- Tamil Emotion Tags: [உற்சாகமாக], [மகிழ்ச்சியாக], [சோகமாக], [கோபமாக], [கம்பீரமாக], [அமைதியாக], [ஆச்சரியத்துடன்], [பதட்டமாக], [ரகசியமாக], [அன்பாக], [நையாண்டியாக], [திகிலாக], [சிரிப்புடன்], [ஆழ்ந்த குரலில்], [மெல்லிய குரலில்]
+- Vocal Injections: <breath>, <gasp>, <laugh>, |yeah|, |mhm|
+- Pacing / Timing: [சிறிய இடைவெளி], [நீண்ட இடைவெளி], ...`
+    : `- English Emotion Tags: [excited], [happy], [sad], [angry], [commanding], [calm], [surprised], [nervous], [whispering], [romantic], [sarcastic], [terrified], [deep voice]
+- Vocal Injections: <breath>, <gasp>, <laugh>, |yeah|, |mhm|
+- Pacing / Timing: <short pause>, <long pause>, ...`
+}
+
+CRITICAL DIRECTING RULES:
+1. DO NOT drastically change the creator's words, meaning, or sentence structure. Keep their original dialogue intact!
+2. Insert 2 to 5 appropriate emotion/breath tags at natural emotional turning points (e.g., at sentence openings, dramatic pauses, climaxes).
+3. Insert '<breath>' before long energetic sentences to sound like real human breathing.
+4. Add expressive punctuation like '...' for natural actor pauses and '!' for energy where appropriate.
+5. If the script already has some tags, improve and balance them.
+
+Creator's Original Script:
+"""
+${script.trim()}
+"""
+
+Return ONLY a JSON object in this exact format:
+{
+  "enrichedScript": "The script with embedded acting tags",
+  "tagsAdded": ["list of tag names added"],
+  "summary": "Short 1-sentence note in Tamil and English on how the script was directed"
+}`;
+
+    const { result: response, keyUsed, switchedKey } = await executeWithGeminiFailover(
+      async (ai) => {
+        return await ai.models.generateContent({
+          model: "gemini-3.8-flash",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+          },
+        });
+      },
+      clientKeys
+    );
+
+    const jsonText = response.text?.trim() || "{}";
+    const parsed = JSON.parse(jsonText);
+
+    return res.json({
+      success: true,
+      enrichedScript: parsed.enrichedScript || script,
+      tagsAdded: parsed.tagsAdded || [],
+      summary: parsed.summary || "Enriched script with natural emotional inflections",
+      keyUsed,
+      switchedKey,
+    });
+  } catch (error: any) {
+    console.error("Emotion enrichment error:", error);
+    return res.status(500).json({ error: error?.message || "Failed to enrich emotions." });
   }
 });
 

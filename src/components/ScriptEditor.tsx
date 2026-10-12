@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo } from "react";
 import { SAMPLE_SCRIPTS } from "../data/voices";
+import { EmotionOption } from "../types";
 import {
   EXPRESSION_TAGS,
   ExpressionTag,
@@ -29,6 +30,9 @@ interface ScriptEditorProps {
   speed: number;
   onTranslate: (targetLang: "ta" | "en" | "tanglish") => Promise<void>;
   isTranslating: boolean;
+  selectedEmotion?: EmotionOption;
+  onEnrichEmotions?: () => Promise<void>;
+  isEnrichingEmotions?: boolean;
 }
 
 export const ScriptEditor: React.FC<ScriptEditorProps> = ({
@@ -37,6 +41,9 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
   speed,
   onTranslate,
   isTranslating,
+  selectedEmotion,
+  onEnrichEmotions,
+  isEnrichingEmotions,
 }) => {
   const [showDictionary, setShowDictionary] = useState(false);
   const [showSamplesMenu, setShowSamplesMenu] = useState(false);
@@ -286,6 +293,24 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
             </div>
           )}
         </div>
+
+        {/* 1-Click AI Emotion Director / Enricher */}
+        {onEnrichEmotions && (
+          <button
+            type="button"
+            onClick={onEnrichEmotions}
+            disabled={!text.trim() || isEnrichingEmotions}
+            title={`Auto-enrich your script with ${selectedEmotion?.label || 'emotional'} acting tags, breaths & pauses`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600/30 via-purple-600/30 to-pink-600/20 hover:from-indigo-600/40 hover:to-purple-600/40 text-indigo-200 border border-indigo-500/50 hover:border-indigo-400 text-xs font-semibold disabled:opacity-40 disabled:pointer-events-none transition-all shadow-sm group"
+          >
+            {isEnrichingEmotions ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:scale-125 transition-transform" />
+            )}
+            <span>{isEnrichingEmotions ? "உணர்ச்சிகள் சேர்க்கிறது..." : "✨ உணர்ச்சிகள் சேர் (Auto-Enrich)"}</span>
+          </button>
+        )}
 
         {/* Vocal tags */}
         <div className="flex items-center gap-1 overflow-x-auto py-0.5">
@@ -668,6 +693,28 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
           </div>
         )}
       </div>
+
+      {/* Helpful Smart Direction Helper */}
+      {text.trim().length > 0 && !/(\[[^\]]+\]|<[^>]+>|\|[^|]+\|)/.test(text) && (
+        <div className="mx-3 my-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-950/40 via-purple-950/30 to-slate-900/40 border border-indigo-800/40 text-[11px] text-indigo-200 flex items-center justify-between gap-2 shadow-xs">
+          <div className="flex items-center gap-1.5 truncate">
+            <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+            <span className="truncate">
+              💡 <strong>குரல் உணர்ச்சி குறிப்பு:</strong> Sample prompts-ஐ போல உங்கள் சொந்த ஸ்கிரிப்ட்டிலும் குரல் நயம் வர மேலே உள்ள "<strong>✨ உணர்ச்சிகள் சேர்</strong>" பட்டனை அழுத்தவும்.
+            </span>
+          </div>
+          {onEnrichEmotions && (
+            <button
+              type="button"
+              onClick={onEnrichEmotions}
+              disabled={isEnrichingEmotions}
+              className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-[10px] shrink-0 transition-colors shadow-xs"
+            >
+              {isEnrichingEmotions ? "சேர்க்கிறது..." : "உணர்ச்சிகள் சேர்"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Bottom Status & Metrics Bar */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950 border-t border-slate-800/80 text-[11px] text-slate-400">

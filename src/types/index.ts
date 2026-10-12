@@ -30,6 +30,7 @@ export interface EmotionOption {
   description: string;
   promptInstruction: string;
   iconName: string;
+  emoji?: string;
 }
 
 export interface GeneratedAudioItem {

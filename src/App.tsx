@@ -209,6 +209,57 @@ export default function App() {
     }
   };
 
+  // Script Emotion Enricher handler (Auto-Direction)
+  const [isEnrichingEmotions, setIsEnrichingEmotions] = useState(false);
+  const handleEnrichEmotions = async () => {
+    if (!scriptText.trim()) return;
+    setIsEnrichingEmotions(true);
+    try {
+      const isTamil = /[\u0B80-\u0BFF]/.test(scriptText);
+      const languageCode = isTamil ? "ta" : "en";
+
+      const res = await fetch("/api/script/enrich-emotions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          script: scriptText,
+          emotionId: selectedEmotion.id,
+          emotionLabel: `${selectedEmotion.label} (${selectedEmotion.labelTa})`,
+          language: languageCode,
+          clientKeys: userApiKey ? [userApiKey] : undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success && data.enrichedScript) {
+        setIsKeyLimitExhausted(false);
+        setScriptText(data.enrichedScript);
+        showToast(
+          `✨ உணர்ச்சிகள் சேர்க்கப்பட்டன! (${selectedEmotion.label}) ${
+            data.tagsAdded?.length ? `[${data.tagsAdded.join(", ")}]` : ""
+          }`
+        );
+      } else {
+        const errorMsg = data.error || "Emotion enrichment failed";
+        if (/quota|429|resource_exhausted|exhausted|limit/i.test(errorMsg)) {
+          setIsKeyLimitExhausted(true);
+        }
+        throw new Error(errorMsg);
+      }
+    } catch (err: any) {
+      console.warn("Emotion enrichment error:", err);
+      const isQuota = /quota|429|resource_exhausted|exhausted|limit/i.test(err.message || "");
+      if (isQuota) {
+        setIsKeyLimitExhausted(true);
+        showToast("⚠️ API Key Limit முடிந்துவிட்டது! முகப்புப்பக்கத்தில் புதிய Key உள்ளீடு செய்யவும்.");
+      } else {
+        showToast(err.message || "Failed to enrich emotions. Please try again.");
+      }
+    } finally {
+      setIsEnrichingEmotions(false);
+    }
+  };
+
   // Instant zero-latency local speech preview
   const handleInstantLocalPreview = () => {
     if (!scriptText.trim()) return;
@@ -292,11 +343,10 @@ export default function App() {
       const isQuota = /quota|429|resource_exhausted|limit|exhausted/i.test(err.message || "");
       if (isQuota) {
         setIsKeyLimitExhausted(true);
-        showToast("⚠️ API Key Limit முடிந்துவிட்டது! முகப்புப்பக்கத்தில் புதிய Key உள்ளீடு செய்யவும்.");
+        showToast("⚠️ API Key Limit முடிந்துவிட்டது! முகப்பில் உள்ள 'API Keys' பட்டனை அழுத்தி புதிய Gemini API Key சேர்க்கவும்.");
       } else {
-        showToast(err.message || "Synthesis error. Falling back to local preview.");
+        showToast(err.message || "Audio synthesis error. Please check your text or try again.");
       }
-      handleInstantLocalPreview();
     } finally {
       setIsGenerating(false);
     }
@@ -425,13 +475,16 @@ export default function App() {
             <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left 7 Columns: Script Editor + Audio Player Deck */}
             <div className="lg:col-span-7 flex flex-col gap-6">
-              <div className="h-[360px]">
+              <div className="min-h-[380px] h-auto">
                 <ScriptEditor
                   text={scriptText}
                   onChangeText={setScriptText}
                   speed={speed}
                   onTranslate={handleTranslate}
                   isTranslating={isTranslating}
+                  selectedEmotion={selectedEmotion}
+                  onEnrichEmotions={handleEnrichEmotions}
+                  isEnrichingEmotions={isEnrichingEmotions}
                 />
               </div>
 
@@ -517,6 +570,8 @@ export default function App() {
                 onInstantLocalPreview={handleInstantLocalPreview}
                 isLocalPreviewing={isLocalPreviewing}
                 hasText={Boolean(scriptText.trim())}
+                onEnrichEmotions={handleEnrichEmotions}
+                isEnrichingEmotions={isEnrichingEmotions}
               />
 
               {/* Creator Pro Tips Box */}

@@ -4,6 +4,33 @@
  * visualizer AnalyserNode, microphone capture, and speech synthesis fallback.
  */
 
+function addWavHeaderToPcm(pcmBytes: Uint8Array, sampleRate = 24000, numChannels = 1, bitDepth = 16): ArrayBuffer {
+  const dataSize = pcmBytes.length;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  // "RIFF"
+  view.setUint8(0, 0x52); view.setUint8(1, 0x49); view.setUint8(2, 0x46); view.setUint8(3, 0x46);
+  view.setUint32(4, 36 + dataSize, true);
+  // "WAVE"
+  view.setUint8(8, 0x57); view.setUint8(9, 0x41); view.setUint8(10, 0x56); view.setUint8(11, 0x45);
+  // "fmt "
+  view.setUint8(12, 0x66); view.setUint8(13, 0x6d); view.setUint8(14, 0x74); view.setUint8(15, 0x20);
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * (bitDepth / 8), true);
+  view.setUint16(32, numChannels * (bitDepth / 8), true);
+  view.setUint16(34, bitDepth, true);
+  // "data"
+  view.setUint8(36, 0x64); view.setUint8(37, 0x61); view.setUint8(38, 0x74); view.setUint8(39, 0x61);
+  view.setUint32(40, dataSize, true);
+
+  new Uint8Array(buffer, 44).set(pcmBytes);
+  return buffer;
+}
+
 class AudioEngine {
   private ctx: AudioContext | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
@@ -48,7 +75,16 @@ class AudioEngine {
     for (let i = 0; i < len; i++) {
       bytes[i] = binaryString.charCodeAt(i);
     }
-    const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
+
+    const isRiff =
+      bytes.length >= 4 &&
+      bytes[0] === 0x52 &&
+      bytes[1] === 0x49 &&
+      bytes[2] === 0x46 &&
+      bytes[3] === 0x46;
+
+    const audioBufferData = isRiff ? bytes.buffer.slice(0) : addWavHeaderToPcm(bytes);
+    const audioBuffer = await ctx.decodeAudioData(audioBufferData);
     this.currentBuffer = audioBuffer;
     this.pauseOffset = 0;
     return audioBuffer;
